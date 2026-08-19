@@ -60,6 +60,7 @@ extern	SCRNMNG		scrnmng;
 
 void scrnmng_getsize(int* pw, int* ph);
 void scrnmng_windowtological(float wx, float wy, float *lx, float *ly);
+BRESULT scrnmng_togglefullscreen(UINT8 fullscreen);
 void scrnmng_setwidth(int posx, int width);
 #define scrnmng_setextend(e)
 void scrnmng_setheight(int posy, int height);

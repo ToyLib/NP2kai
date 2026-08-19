@@ -163,7 +163,15 @@ BRESULT scrnmng_create(UINT8 mode) {
 	} else {
 		s_window = SDL_CreateWindow(app_name, SDL_WINDOWPOS_UNDEFINED, SDL_WINDOWPOS_UNDEFINED, scrnmng.width, scrnmng.height, 0);
 	}
+	if(!s_window) {
+		fprintf(stderr, "Error: SDL_CreateWindow: %s\n", SDL_GetError());
+		return(FAILURE);
+	}
 	s_renderer = SDL_CreateRenderer(s_window, -1, 0);
+	if(!s_renderer) {
+		fprintf(stderr, "Error: SDL_CreateRenderer: %s\n", SDL_GetError());
+		return(FAILURE);
+	}
 #else
 	s1_videoinfo = SDL_GetVideoInfo();
 	scrnmng.dispsurf = SDL_SetVideoMode(scrnmng.width, scrnmng.height, scrnmng.bpp, SDL_HWSURFACE);
@@ -269,6 +277,36 @@ BRESULT scrnmng_create(UINT8 mode) {
 #endif
 	}
 	
+	return(SUCCESS);
+}
+
+// ウィンドウ/レンダラーを破棄再生成せずフルスクリーンだけ切り替える（WMとの競合でウィンドウが消えるのを回避）
+BRESULT scrnmng_togglefullscreen(UINT8 fullscreen) {
+#if !defined(__LIBRETRO__)
+#if USE_SDL >= 2
+	if(fullscreen && !scrnmng_isfullscreen()) {
+		scrnmng.flag |= SCRNFLAG_FULLSCREEN;
+#if USE_SDL >= 3
+		if(!SDL_SetWindowFullscreen(s_window, true)) {
+			scrnmng.flag &= ~SCRNFLAG_FULLSCREEN;
+			return(FAILURE);
+		}
+#else
+		if(SDL_SetWindowFullscreen(s_window, SDL_WINDOW_FULLSCREEN_DESKTOP) != 0) {
+			scrnmng.flag &= ~SCRNFLAG_FULLSCREEN;
+			return(FAILURE);
+		}
+#endif
+	} else if(!fullscreen && scrnmng_isfullscreen()) {
+		scrnmng.flag &= ~SCRNFLAG_FULLSCREEN;
+#if USE_SDL >= 3
+		SDL_SetWindowFullscreen(s_window, false);
+#else
+		SDL_SetWindowFullscreen(s_window, 0);
+#endif
+	}
+#endif
+#endif
 	return(SUCCESS);
 }
 

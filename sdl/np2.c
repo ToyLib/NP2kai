@@ -210,7 +210,7 @@ changescreen(UINT8 newmode)
 	UINT8 res;
 
 	change = scrnmode ^ newmode;
-	renewal = (change & SCRNMODE_FULLSCREEN);
+	renewal = 0;
 	if (newmode & SCRNMODE_FULLSCREEN) {
 		renewal |= (change & SCRNMODE_HIGHCOLOR);
 	} else {
@@ -236,10 +236,16 @@ changescreen(UINT8 newmode)
 		changescreeninit = 0;
 		scrndraw_redraw();
 		soundmng_play();
+	} else if (change & SCRNMODE_FULLSCREEN) {
+		// フルスクリーンのON/OFFのみならウィンドウを破棄再生成せず軽量に切り替える
+		if(scrnmng_togglefullscreen((newmode & SCRNMODE_FULLSCREEN) != 0) == SUCCESS) {
+			scrnmode = newmode;
+		}
 	} else {
 		scrnmode = newmode;
 	}
 }
+
 
 // ---- proc
 
