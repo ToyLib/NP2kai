@@ -210,6 +210,14 @@ void ct1741_dma(NEVENTITEM item)
 				}
 
 				if (g_sb16.dsp_info.dma.dmach->ready && (g_sb16.dsp_info.dma.dmach->leng.w) && (g_sb16.dsp_info.freq) && g_sb16.dsp_info.smpcounter < irqsamples) {
+					if (!ct1741_should_schedule_dma(g_sb16.dsp_info.speaker, g_sb16.dsp_info.mode, g_sb16.dsp_info.dma.mode, g_sb16.dsp_info.dma.total, g_sb16.dsp_info.dma.bufdatas)) {
+						g_sb16.dsp_info.wbusy = 0;
+						g_sb16.dsp_info.dma.bufdatas = 0;
+						g_sb16.dsp_info.dma.dmach->ready = 0;
+						g_sb16.dsp_info.dma.dmach->leng.w = 0;
+						ct1741_playinfo.bufdatasrem = 0;
+						return;
+					}
 					// まだデータがあるので再度イベント設定 
 					cnt = pccore.realclock / g_sb16.dsp_info.freq / bytesPerSample * MIN(MIN(g_sb16.dsp_info.dma.dmach->startcount / 4, CT1741_DMA_READINTERVAL / 2), irqsamplesleft); // バッファの1/4を消費するクロック数 or 次の割り込みタイミング
 					if (cnt != 0) {
@@ -218,6 +226,11 @@ void ct1741_dma(NEVENTITEM item)
 					else {
 						nevent_setbyms(NEVENT_CT1741, 1, ct1741_dma, NEVENT_RELATIVE); // neventを0でセットすると猫がフリーズするので回避（基本はここには来ないはず）
 					}
+				}
+				else if (g_sb16.dsp_info.dma.dmach->ready && g_sb16.dsp_info.dma.total == 0) {
+					g_sb16.dsp_info.dma.dmach->ready = 0;
+					g_sb16.dsp_info.dma.bufdatas = 0;
+					g_sb16.dsp_info.dma.dmach->leng.w = 0;
 				}
 				else {
 					// DMA転送終わった
@@ -247,6 +260,14 @@ void ct1741_dma(NEVENTITEM item)
 								g_sb16.dsp_info.wbusy = 0;
 							}
 
+							if (!ct1741_should_schedule_dma(g_sb16.dsp_info.speaker, g_sb16.dsp_info.mode, g_sb16.dsp_info.dma.mode, g_sb16.dsp_info.dma.total, g_sb16.dsp_info.dma.bufdatas)) {
+								g_sb16.dsp_info.wbusy = 0;
+								g_sb16.dsp_info.dma.bufdatas = 0;
+								g_sb16.dsp_info.dma.dmach->ready = 0;
+								g_sb16.dsp_info.dma.dmach->leng.w = 0;
+								ct1741_playinfo.bufdatasrem = 0;
+								return;
+							}
 							// 再度イベント設定
 							cnt = pccore.realclock / g_sb16.dsp_info.freq / bytesPerSample * MIN(MIN(g_sb16.dsp_info.dma.dmach->startcount / 4, CT1741_DMA_READINTERVAL) / 4, irqsamplesleft); // バッファの1/16を消費するクロック数
 							if (cnt != 0) {

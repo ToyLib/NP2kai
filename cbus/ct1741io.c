@@ -408,6 +408,14 @@ static void ct1741dsp_exec_command()
 			break;
 		case DSP_CMD_SPEAKER_OFF:
 			ct1741_playinfo.bufdatasrem = 0; // バッファ破棄
+			ct1741_playinfo.pio.bufdatas = 0;
+			g_sb16.dsp_info.dma.bufdatas = 0;
+			g_sb16.dsp_info.mode = CT1741_DSPMODE_NONE;
+			g_sb16.dsp_info.dma.mode = CT1741_DMAMODE_NONE;
+			if (g_sb16.dsp_info.dma.dmach) {
+				g_sb16.dsp_info.dma.dmach->ready = 0;
+				g_sb16.dsp_info.dma.dmach->leng.w = 0;
+			}
 			g_sb16.dsp_info.speaker = 0x00;
 			break;
 		case DSP_CMD_CONTINUE_8BIT_DMA:

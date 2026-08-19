@@ -2,6 +2,7 @@
 #include	<pccore.h>
 #include	<fdd/diskdrv.h>
 #include	<fdd/fdd_mtr.h>
+#include	<wab/wab_rly.h>
 #include	<timing.h>
 
 
@@ -56,6 +57,7 @@ UINT timing_getcount(void) {
 	if (span) {
 		timing.tick = ticknow;
 		fddmtr_callback(ticknow);
+		wabrly_callback(ticknow);
 
 		if (span >= 1000) {
 			span = 1000;

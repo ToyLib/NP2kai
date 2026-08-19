@@ -152,6 +152,42 @@ typedef struct {
 
 extern CT1741_PLAYINFO ct1741_playinfo;
 
+static inline BOOL ct1741_should_output_audio(UINT8 speaker, CT1741_DSPMODE mode, CT1741_DMAMODE dma_mode)
+{
+	if (speaker == 0x00) {
+		return FALSE;
+	}
+	if (mode == CT1741_DSPMODE_DMA_PAUSE) {
+		return FALSE;
+	}
+	if ((mode == CT1741_DSPMODE_DMA || mode == CT1741_DSPMODE_DMA2 || mode == CT1741_DSPMODE_DMA_IN) &&
+		(dma_mode == CT1741_DMAMODE_NONE)) {
+		return FALSE;
+	}
+	if (mode == CT1741_DSPMODE_DAC || mode == CT1741_DSPMODE_DMA || mode == CT1741_DSPMODE_DMA2 || mode == CT1741_DSPMODE_DMA_IN) {
+		return TRUE;
+	}
+	return FALSE;
+}
+
+static inline BOOL ct1741_should_schedule_dma(UINT8 speaker, CT1741_DSPMODE mode, CT1741_DMAMODE dma_mode, UINT32 total, UINT32 bufdatas)
+{
+	if (speaker == 0x00) {
+		return FALSE;
+	}
+	if (mode == CT1741_DSPMODE_NONE || mode == CT1741_DSPMODE_DMA_PAUSE) {
+		return FALSE;
+	}
+	if (total == 0 || bufdatas == 0) {
+		return FALSE;
+	}
+	if ((mode == CT1741_DSPMODE_DMA || mode == CT1741_DSPMODE_DMA2 || mode == CT1741_DSPMODE_DMA_IN) &&
+		(dma_mode == CT1741_DMAMODE_NONE)) {
+		return FALSE;
+	}
+	return TRUE;
+}
+
 // 各再生モードのアライメント
 extern int CT1741_BUF_ALIGN[];
 

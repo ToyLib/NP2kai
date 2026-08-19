@@ -68,7 +68,7 @@ int convertKeyMap(int scancode){
     case 40: //start
       return SDL_SCANCODE_RETURN;
     case 43: //L
-      return SDL_SCANCODE_F11;
+      return SDL_SCANCODE_F10;
     case 42: //R
       // ENABLE_MOUSE++;
       // ENABLE_MOUSE=ENABLE_MOUSE%2;
@@ -126,15 +126,17 @@ void taskmng_rol(void) {
 			if (menuvram == NULL) {
 				mousemng_onmove(&e.motion);
 			} else {
+				float lx, ly;
+				scrnmng_windowtological(e.motion.x, e.motion.y, &lx, &ly);
 				if((scrnmode & SCRNMODE_ROTATEMASK) == SCRNMODE_ROTATELEFT) {
-					mx = (menuvram->width - 1) - e.motion.y;
-					my = e.motion.x;
+					mx = (menuvram->width - 1) - (int)ly;
+					my = (int)lx;
 				} else if((scrnmode & SCRNMODE_ROTATEMASK) == SCRNMODE_ROTATERIGHT) {
-					mx = e.motion.y;
-					my = (menuvram->height - 1) - e.motion.x;
+					mx = (int)ly;
+					my = (menuvram->height - 1) - (int)lx;
 				} else {
-					mx = e.motion.x;
-					my = e.motion.y;
+					mx = (int)lx;
+					my = (int)ly;
 				}
 				menubase_moving(mx, my, 0);
 			}
@@ -230,11 +232,11 @@ void taskmng_rol(void) {
 #endif
 #endif  // __OPENDINGUX__
 #if USE_SDL >= 3
-			if (e.key.scancode == SDL_SCANCODE_F11) {
+			if (e.key.scancode == SDL_SCANCODE_F10) {
 #elif USE_SDL >= 2
-			if (e.key.keysym.scancode == SDL_SCANCODE_F11) {
+			if (e.key.keysym.scancode == SDL_SCANCODE_F10) {
 #else
-			if (e.key.keysym.sym == SDLK_F11) {
+			if (e.key.keysym.sym == SDLK_F10) {
 #endif
 #if defined(EMSCRIPTEN) && !defined(__LIBRETRO__) //in web browsers, F11 is commonly occupied. Use CTRL+F11
 			if ((e.key.keysym.mod == KMOD_LCTRL) || (e.key.keysym.mod == KMOD_RCTRL)) {

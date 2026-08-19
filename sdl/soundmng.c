@@ -451,12 +451,19 @@ soundmng_sync(void)
 			pcm = sound_pcmlock();
 			if(pcm) {
 				(*fnmix)((SINT16 *)sndbuf->buf, pcm, opna_frame);
-			}
-			sound_pcmunlock(pcm);
-			sndbuf->remain = sndbuf->size;
+				sound_pcmunlock(pcm);
+				sndbuf->remain = sndbuf->size;
 
-			sounddrv_lock();
-			SNDBUF_FILLED_QUEUE_INSERT_TAIL(sndbuf);
+				sounddrv_lock();
+				SNDBUF_FILLED_QUEUE_INSERT_TAIL(sndbuf);
+			}
+			else {
+				// pcm lock failed: buf was never refreshed this cycle, so it
+				// still holds stale audio from a previous use. Do not queue
+				// it as playable data — return it to the freelist instead.
+				sounddrv_lock();
+				SNDBUF_FREELIST_INSERT_HEAD(sndbuf);
+			}
 		}
 		sounddrv_unlock();
 	}

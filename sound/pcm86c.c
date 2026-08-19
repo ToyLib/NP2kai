@@ -145,6 +145,30 @@ void pcm86_cb(NEVENTITEM item)
 	if (pcm86->reqirq)
 	{
 		sound_sync();
+		if (pcm86_is_stale_ring(pcm86))
+		{
+			pcm86_kill_stale_state(pcm86);
+			return;
+		}
+		if (pcm86->realbuf == 0 && pcm86->virbuf == 0)
+		{
+			pcm86->reqirq = 0;
+			pcm86->irqflag = 0;
+			pcm86->divremain = 0;
+			pcm86->smp = 0;
+			pcm86->lastsmp = 0;
+			pcm86->smp_l = 0;
+			pcm86->lastsmp_l = 0;
+			pcm86->smp_r = 0;
+			pcm86->lastsmp_r = 0;
+			return;
+		}
+		if (pcm86->realbuf <= 0)
+		{
+			pcm86->reqirq = 0;
+			pcm86->irqflag = 0;
+			return;
+		}
 		//		RECALC_NOWCLKP;
 
 		adjustbuf = (SINT32)(((SINT64)pcm86->virbuf * 4 + pcm86->realbuf) / 5);
@@ -177,6 +201,18 @@ void pcm86_setnextintr(void) {
 	SINT32	cntr;
 	SINT32	cnt;
 	SINT32	clk;
+
+	if (pcm86_is_stale_ring(pcm86))
+	{
+		pcm86_kill_stale_state(pcm86);
+		return;
+	}
+	if (pcm86->realbuf <= 0)
+	{
+		pcm86->reqirq = 0;
+		pcm86->irqflag = 0;
+		return;
+	}
 
 	if (pcm86->fifo & 0x80)
 	{
@@ -262,6 +298,14 @@ void pcm86_setnextintr(void) {
 			}
 			else
 			{
+				// 実際に再生可能な音が残っていないときは再割り込みをかけない。
+				// これが残ると、空またはstaleなリングをしきりに再アームしてフリーズする。
+				if (pcm86->realbuf <= 0)
+				{
+					pcm86->reqirq = 0;
+					pcm86->irqflag = 0;
+					return;
+				}
 				// WORKAROUND: 前回の割り込みがうまくいっていない。適当な時間間隔で再度割り込みを送る。早すぎるとNT4等が割り込み無限ループするので注意
 				pcm86->reqirq = 1;
 				nevent_set(NEVENT_86PCM, 100 * pccore.multiple, pcm86_cb, NEVENT_ABSOLUTE);
@@ -388,6 +432,20 @@ void SOUNDCALL pcm86gen_checkbuf(PCM86 pcm86, UINT nCount)
 	}
 
 	//pcm86->virbuf = pcm86->realbuf;
+	if (pcm86_is_stale_ring(pcm86))
+	{
+		pcm86_clear_stale_ring(pcm86);
+		pcm86->reqirq = 0;
+		pcm86->irqflag = 0;
+	}
+	// realbuf>0 with virbuf==0 is normal backlog (wall-clock watermark depleted
+	// first); leave it alone so the mixer can keep draining realbuf.
+	if (pcm86->realbuf < 0) {
+		pcm86->realbuf = 0;
+	}
+	if (pcm86->virbuf < 0) {
+		pcm86->virbuf = 0;
+	}
 	bufs = pcm86->realbuf - pcm86->virbuf;
 	if (bufs < 0)
 	{
@@ -475,10 +533,31 @@ BOOL pcm86gen_intrq(int fromFMTimer)
 	}
 	if (pcm86->irqflag)
 	{
+		if (pcm86_is_stale_ring(pcm86))
+		{
+			pcm86_debug_ring_state("intrq-stale-irqflag", pcm86);
+			pcm86_clear_stale_ring(pcm86);
+			pcm86->reqirq = 0;
+			pcm86->irqflag = 0;
+			nevent_reset(NEVENT_86PCM);
+			pcm86->lastclockforwait = CPU_CLOCK + CPU_BASECLOCK - CPU_REMCLOCK;
+			return FALSE;
+		}
 		return TRUE;
+	}
+	if (pcm86_is_stale_ring(pcm86))
+	{
+		pcm86_kill_stale_state(pcm86);
+		return FALSE;
 	}
 	if (!nevent_iswork(NEVENT_86PCM)) {
 		sound_sync();
+		if (pcm86->realbuf <= 0)
+		{
+			pcm86->reqirq = 0;
+			pcm86->irqflag = 0;
+			return FALSE;
+		}
 		if (!(pcm86->irqflag) && (pcm86->virbuf <= pcm86->fifosize || pcm86->realbuf > pcm86->stepmask && pcm86->realbuf <= pcm86->fifosize))
 		{
 			//pcm86->reqirq = 0;

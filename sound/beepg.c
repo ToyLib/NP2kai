@@ -163,15 +163,19 @@ const BPEVENT	*bev;
 
 void SOUNDCALL beep_getpcm(BEEP bp, SINT32 *pcm, UINT count) {
 
-	if ((count) && (beepcfg.vol)) {
-		if (bp->mode == 0) {
-			if (bp->events) {
-				oneshot(bp, pcm, count);
-			}
+	if ((count == 0) || (pcm == NULL)) {
+		return;
+	}
+	if ((!beepcfg.vol) || (!bp->buz)) {
+		return;
+	}
+	if (bp->mode == 0) {
+		if (bp->events) {
+			oneshot(bp, pcm, count);
 		}
-		else if (bp->mode == 1) {
-			rategenerator(bp, pcm, count);
-		}
+	}
+	else if (bp->mode == 1) {
+		rategenerator(bp, pcm, count);
 	}
 }
 

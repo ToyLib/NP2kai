@@ -126,6 +126,30 @@ typedef struct {
 	UINT	vol;
 } PCM86CFG;
 
+static inline BOOL pcm86_should_output_audio(UINT8 fifo, UINT div, SINT32 realbuf, SINT32 virbuf)
+{
+	(void)virbuf;
+	/* Playback must stay silent until the driver sets the FIFO play-enable
+	 * bit (0x80); buffered/priming data written before that must not be heard. */
+	if (!(fifo & 0x80) || div == 0) {
+		return FALSE;
+	}
+	if (realbuf <= 0) {
+		return FALSE;
+	}
+	return TRUE;
+}
+
+static inline BOOL pcm86_has_valid_audio(SINT32 realbuf, SINT32 virbuf)
+{
+	(void)virbuf;
+	return (realbuf > 0);
+}
+
+void pcm86_debug_ring_state(const char *where, PCM86 pcm86);
+BOOL pcm86_is_stale_ring(PCM86 pcm86);
+void pcm86_kill_stale_state(PCM86 pcm86);
+void pcm86_clear_stale_ring(PCM86 pcm86);
 
 #ifdef __cplusplus
 extern "C"

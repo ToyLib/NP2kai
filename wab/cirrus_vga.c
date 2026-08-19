@@ -2210,13 +2210,15 @@ cirrus_hook_read_cr(CirrusVGAState * s, unsigned reg_index, int *reg_value)
     case 0x10:			// Standard VGA
     case 0x11:			// Standard VGA
     case 0x12:			// Standard VGA
-    case 0x13:			// Standard VGA
     case 0x14:			// Standard VGA
     case 0x15:			// Standard VGA
     case 0x16:			// Standard VGA
     case 0x17:			// Standard VGA
     case 0x18:			// Standard VGA
 		return CIRRUS_HOOK_NOT_HANDLED;
+    case 0x13:			// Line Offset register. This must be cached for 8bpp/16bpp pitch handling.
+		*reg_value = s->cr[reg_index];
+		break;
     case 0x24:			// Attribute Controller Toggle Readback (R)
         *reg_value = (s->ar_flip_flop << 7);
         break;
@@ -2314,13 +2316,15 @@ cirrus_hook_write_cr(CirrusVGAState * s, unsigned reg_index, int reg_value)
     case 0x10:			// Standard VGA
     case 0x11:			// Standard VGA
     case 0x12:			// Standard VGA
-    case 0x13:			// Standard VGA
     case 0x14:			// Standard VGA
     case 0x15:			// Standard VGA
     case 0x16:			// Standard VGA
     case 0x17:			// Standard VGA
     case 0x18:			// Standard VGA
 		return CIRRUS_HOOK_NOT_HANDLED;
+    case 0x13:			// Line Offset register. Update the cached pitch value for 8bpp/16bpp modes.
+		s->cr[reg_index] = reg_value;
+		return CIRRUS_HOOK_HANDLED;
     case 0x19:			// Interlace End
     case 0x1a:			// Miscellaneous Control
     case 0x1b:			// Extended Display Control
@@ -5311,22 +5315,13 @@ int cirrusvga_drawGraphic(){
 	vram_ptr = cirrusvga->vram_ptr + np2wab.vramoffs;
 	lastvramoffs = np2wab.vramoffs;
 	
-	//if(cirrusvga->device_id == CIRRUS_ID_CLGD5446 || (np2clvga.gd54xxtype & CIRRUS_98ID_GA98NBMASK) == CIRRUS_98ID_GA98NBIC || (np2clvga.gd54xxtype & CIRRUS_98ID_WABMASK) == CIRRUS_98ID_WAB){
-		//if((cirrusvga->cr[0x5e] & 0x7) == 0x1){
-		//	cirrusvga->graphics_dblbuf_index = (cirrusvga->graphics_dblbuf_index + 1) & 0x1;
-		//}
-		//if(cirrusvga->graphics_dblbuf_index != 0 || (cirrusvga->cr[0x1a] & 0x2) || (np2clvga.gd54xxtype & CIRRUS_98ID_GA98NBMASK) == CIRRUS_98ID_GA98NBIC || (np2clvga.gd54xxtype & CIRRUS_98ID_WABMASK) == CIRRUS_98ID_WAB)
-		{
-			// Screen Start A
-			int addroffset = 
-				(((int)(cirrusvga->cr[0x1d] >> 7) & 0x01) << 19)|
-				(((int)(cirrusvga->cr[0x1b] >> 2) & 0x03) << 17)|
-				(((int)(cirrusvga->cr[0x1b] >> 0) & 0x01) << 16)|
-				(((int)(cirrusvga->cr[0x0c] >> 0) & 0xff) << 8)|
-				(((int)(cirrusvga->cr[0x0d] >> 0) & 0xff) << 0);
-			vram_ptr += addroffset * 4; // ???
-		}
-	//}
+	{
+		uint32_t_ start_addr = 0;
+		uint32_t_ dummy_line_offset = 0;
+		uint32_t_ dummy_line_compare = 0;
+		cirrus_get_offsets((VGAState *)cirrusvga, &dummy_line_offset, &start_addr, &dummy_line_compare);
+		vram_ptr += start_addr;
+	}
 	
 #if defined(DEBUG_CIRRUS_VRAM)
 	// DEBUG 
@@ -5429,11 +5424,14 @@ int cirrusvga_drawGraphic(){
 	scanW = width*(bpp/8);
 	scanpixW = width;
 	if(bpp && line_offset){
-		// 32bit color用やっつけ修正 for GA-98NB & WSN-A2F/A4F
+		int expected_pitch = width * (bpp / 8);
 		if(bpp==32){
 			if((np2clvga.gd54xxtype & CIRRUS_98ID_GA98NBMASK) == CIRRUS_98ID_GA98NBIC || (np2clvga.gd54xxtype & CIRRUS_98ID_WABMASK) == CIRRUS_98ID_WAB){
 				line_offset <<= 1;
 			}
+		}
+		if(line_offset < expected_pitch){
+			line_offset = expected_pitch;
 		}
 		scanW = line_offset;
 	}
@@ -5460,21 +5458,19 @@ int cirrusvga_drawGraphic(){
 	if((np2clvga.gd54xxtype & CIRRUS_98ID_GA98NBMASK) == CIRRUS_98ID_GA98NBIC){
 		if(np2cfg.ga98nb_bigscrn_ex && (bpp==8 || bpp==16) && (width==1024 || width==1280) && scanW*8/bpp==1600){
 			// 1600x1024 Big Screen Extension
-			int addroffset = 
-				(((int)(cirrusvga->cr[0x1d] >> 7) & 0x01) << 19)|
-				(((int)(cirrusvga->cr[0x1b] >> 2) & 0x03) << 17)|
-				(((int)(cirrusvga->cr[0x1b] >> 0) & 0x01) << 16)|
-				(((int)(cirrusvga->cr[0x0c] >> 0) & 0xff) << 8)|
-				(((int)(cirrusvga->cr[0x0d] >> 0) & 0xff) << 0);
-			addroffset *= 4;
+			uint32_t_ start_addr = 0;
+			uint32_t_ dummy_line_offset = 0;
+			uint32_t_ dummy_line_compare = 0;
+			cirrus_get_offsets((VGAState *)cirrusvga, &dummy_line_offset, &start_addr, &dummy_line_compare);
+			start_addr *= 4;
 			realWidth = 1600;
 			realHeight = 1024;
 			width = 1600;
 			height = 1024;
 			scanpixW = 1600;
 			vram_ptr = cirrusvga->vram_ptr + np2wab.vramoffs;
-			cursot_ofs_x = (addroffset*8/bpp) % 1600;
-			cursot_ofs_y = (addroffset*8/bpp) / 1600;
+			cursot_ofs_x = (start_addr*8/bpp) % 1600;
+			cursot_ofs_y = (start_addr*8/bpp) / 1600;
 		}
 	}
 	
@@ -5524,21 +5520,6 @@ int cirrusvga_drawGraphic(){
 					0 , 0 , 0 , -ga_bmpInfo->bmiHeader.biHeight ,
 					vram_ptr+scanshift*bpp/8 , ga_bmpInfo , DIB_PAL_COLORS
 				);
-				//int scanshiftY = scanshift/scanpixW;
-				//ga_bmpInfo->bmiHeader.biWidth = scanpixW;
-				//ga_bmpInfo->bmiHeader.biHeight = -height;
-				//SetDIBitsToDevice(
-				//	hdc , 0 , 0 ,
-				//	ga_bmpInfo->bmiHeader.biWidth , -ga_bmpInfo->bmiHeader.biHeight ,
-				//	0 , 0 , scanshiftY , -ga_bmpInfo->bmiHeader.biHeight ,
-				//	vram_ptr , ga_bmpInfo , DIB_PAL_COLORS
-				//);
-				//SetDIBitsToDevice(
-				//	hdc , 0 , 0 ,
-				//	ga_bmpInfo->bmiHeader.biWidth , -ga_bmpInfo->bmiHeader.biHeight ,
-				//	0 , 0 , 0 , scanshiftY ,
-				//	vram_ptr , ga_bmpInfo , DIB_PAL_COLORS
-				//);
 #elif defined(NP2_X)
 				scanptr = vram_ptr;
 				if(np2wabwnd.pPixbuf) {
@@ -5546,9 +5527,10 @@ int cirrusvga_drawGraphic(){
 					p = gdk_pixbuf_get_pixels(VRAMBuf);
 					for(j = 0; j < height; j++) {
 						for(i = 0; i < width; i++) {
-							p[(j * width + i) * 3    ] = cirrusvga->palette[vram_ptr[j * width + i] * 3    ] << 2;
-							p[(j * width + i) * 3 + 1] = cirrusvga->palette[vram_ptr[j * width + i] * 3 + 1] << 2;
-							p[(j * width + i) * 3 + 2] = cirrusvga->palette[vram_ptr[j * width + i] * 3 + 2] << 2;
+							const uint8_t idx = vram_ptr[j * scanW + i];
+							p[(j * width + i) * 3    ] = cirrusvga->palette[idx * 3    ] << 2;
+							p[(j * width + i) * 3 + 1] = cirrusvga->palette[idx * 3 + 1] << 2;
+							p[(j * width + i) * 3 + 2] = cirrusvga->palette[idx * 3 + 2] << 2;
 						}
 					}
 				}
@@ -5558,9 +5540,10 @@ int cirrusvga_drawGraphic(){
 				p = (unsigned char*)VRAMBuf;
 				for(j = 0; j < height; j++) {
 					for(i = 0; i < width; i++) {
-						p[(j * width + i) * 4 + 2] = cirrusvga->palette[vram_ptr[j * width + i] * 3    ] << 2;
-						p[(j * width + i) * 4 + 1] = cirrusvga->palette[vram_ptr[j * width + i] * 3 + 1] << 2;
-						p[(j * width + i) * 4    ] = cirrusvga->palette[vram_ptr[j * width + i] * 3 + 2] << 2;
+						const uint8_t idx = vram_ptr[j * scanW + i];
+						p[(j * width + i) * 4 + 2] = cirrusvga->palette[idx * 3    ] << 2;
+						p[(j * width + i) * 4 + 1] = cirrusvga->palette[idx * 3 + 1] << 2;
+						p[(j * width + i) * 4    ] = cirrusvga->palette[idx * 3 + 2] << 2;
 					}
 				}
 #endif
@@ -5582,9 +5565,10 @@ int cirrusvga_drawGraphic(){
 					p = gdk_pixbuf_get_pixels(VRAMBuf);
 					for(j = 0; j < height; j++) {
 						for(i = 0; i < width; i++) {
-							p[(j * width + i) * 3    ] = cirrusvga->palette[vram_ptr[j * width + i] * 3    ] << 2;
-							p[(j * width + i) * 3 + 1] = cirrusvga->palette[vram_ptr[j * width + i] * 3 + 1] << 2;
-							p[(j * width + i) * 3 + 2] = cirrusvga->palette[vram_ptr[j * width + i] * 3 + 2] << 2;
+							const uint8_t idx = vram_ptr[j * scanW + i];
+							p[(j * width + i) * 3    ] = cirrusvga->palette[idx * 3    ] << 2;
+							p[(j * width + i) * 3 + 1] = cirrusvga->palette[idx * 3 + 1] << 2;
+							p[(j * width + i) * 3 + 2] = cirrusvga->palette[idx * 3 + 2] << 2;
 						}
 					}
 				}
@@ -5594,9 +5578,10 @@ int cirrusvga_drawGraphic(){
 				p = (unsigned char*)VRAMBuf;
 				for(j = 0; j < height; j++) {
 					for(i = 0; i < width; i++) {
-						p[(j * width + i) * 4 + 2] = cirrusvga->palette[vram_ptr[j * width + i] * 3    ] << 2;
-						p[(j * width + i) * 4 + 1] = cirrusvga->palette[vram_ptr[j * width + i] * 3 + 1] << 2;
-						p[(j * width + i) * 4    ] = cirrusvga->palette[vram_ptr[j * width + i] * 3 + 2] << 2;
+						const uint8_t idx = vram_ptr[j * scanW + i];
+						p[(j * width + i) * 4 + 2] = cirrusvga->palette[idx * 3    ] << 2;
+						p[(j * width + i) * 4 + 1] = cirrusvga->palette[idx * 3 + 1] << 2;
+						p[(j * width + i) * 4    ] = cirrusvga->palette[idx * 3 + 2] << 2;
 					}
 				}
 #endif
@@ -5628,9 +5613,10 @@ int cirrusvga_drawGraphic(){
 			p = (unsigned char*)VRAMBuf;
 			for(j = 0; j < height; j++) {
 				for(i = 0; i < width; i++) {
-					p[(j * width + i) * 4 + 2] = cirrusvga->palette[vram_ptr[j * width + i] * 3    ] << 2;
-					p[(j * width + i) * 4 + 1] = cirrusvga->palette[vram_ptr[j * width + i] * 3 + 1] << 2;
-					p[(j * width + i) * 4    ] = cirrusvga->palette[vram_ptr[j * width + i] * 3 + 2] << 2;
+					const uint8_t idx = vram_ptr[j * scanW + i];
+					p[(j * width + i) * 4 + 2] = cirrusvga->palette[idx * 3    ] << 2;
+					p[(j * width + i) * 4 + 1] = cirrusvga->palette[idx * 3 + 1] << 2;
+					p[(j * width + i) * 4    ] = cirrusvga->palette[idx * 3 + 2] << 2;
 				}
 			}
 #endif
@@ -5662,9 +5648,9 @@ int cirrusvga_drawGraphic(){
 				p = (unsigned char*)VRAMBuf;
 				for(j = 0; j < height; j++) {
 					for(i = 0; i < width; i++) {
-						p[(j * width + i) * 4    ] = vram_ptr[(j * width + i) * 3    ];
-						p[(j * width + i) * 4 + 1] = vram_ptr[(j * width + i) * 3 + 1];
-						p[(j * width + i) * 4 + 2] = vram_ptr[(j * width + i) * 3 + 2];
+						p[(j * width + i) * 4    ] = vram_ptr[(j * scanW) + i * 3    ];
+						p[(j * width + i) * 4 + 1] = vram_ptr[(j * scanW) + i * 3 + 1];
+						p[(j * width + i) * 4 + 2] = vram_ptr[(j * scanW) + i * 3 + 2];
 					}
 				}
 #endif
@@ -5713,9 +5699,9 @@ int cirrusvga_drawGraphic(){
 				if(bpp == 24) {
 					for(j = 0; j < height; j++) {
 						for(i = 0; i < width; i++) {
-							p[(j * width + i) * 4    ] = vram_ptr[(j * width + i) * 3    ];
-							p[(j * width + i) * 4 + 1] = vram_ptr[(j * width + i) * 3 + 1];
-							p[(j * width + i) * 4 + 2] = vram_ptr[(j * width + i) * 3 + 2];
+							p[(j * width + i) * 4    ] = vram_ptr[(j * scanW + i) * 3    ];
+							p[(j * width + i) * 4 + 1] = vram_ptr[(j * scanW + i) * 3 + 1];
+							p[(j * width + i) * 4 + 2] = vram_ptr[(j * scanW + i) * 3 + 2];
 						}
 					}
 				} else if(bpp == 16) {

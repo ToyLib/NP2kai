@@ -314,6 +314,31 @@ static const CT1741FN ct1741fn[16] = {
 void SOUNDCALL ct1741_getpcm(DMA_INFO* ct, SINT32* pcm, UINT count) {
 	static CT1741FN lastplayfn = nomake; // 最後に使用した再生用関数
 
+	if ((count == 0) || (ct == NULL) || (pcm == NULL)) {
+		return;
+	}
+	if ((g_sb16.dsp_info.dma.total == 0) || (ct->bufdatas == 0)) {
+		ct->bufdatas = 0;
+		ct1741_playinfo.bufdatasrem = 0;
+		sample_rem = 0;
+		if (g_sb16.dsp_info.dma.dmach) {
+			g_sb16.dsp_info.dma.dmach->leng.w = 0;
+		}
+		return;
+	}
+
+	// スピーカーが OFF / 一時停止中 / DMA 未開始なら古い PCM を再生しない
+	if (!ct1741_should_output_audio(g_sb16.dsp_info.speaker, g_sb16.dsp_info.mode, g_sb16.dsp_info.dma.mode)) {
+		ct->bufdatas = 0;
+		ct1741_playinfo.bufdatasrem = 0;
+		sample_rem = 0;
+		if (g_sb16.dsp_info.dma.dmach) {
+			g_sb16.dsp_info.dma.dmach->ready = 0;
+			g_sb16.dsp_info.dma.dmach->leng.w = 0;
+		}
+		return;
+	}
+
 	// 再生用バッファに送る
 	if (ct1741_playinfo.playwaitcounter <= 0) {
 		int idx = g_sb16.dsp_info.dma.mode | g_sb16.dsp_info.dma.stereo << 3;

@@ -98,6 +98,7 @@ static void IOOUTCALL pcm86_oa468(UINT port, REG8 val) {
 			pcm86cs_enter_criticalsection();
 #endif
 			// バッファリセット
+			memset(g_pcm86.buffer, 0, sizeof(g_pcm86.buffer));
 			g_pcm86.wrtpos = 0;
 			g_pcm86.readpos = 0;
 			g_pcm86.realbuf = 0;
@@ -195,13 +196,8 @@ static void IOOUTCALL pcm86_oa46c(UINT port, REG8 val) {
 	g_pcm86.realbuf++;
 	// バッファオーバーフローの監視
 	if (g_pcm86.realbuf >= PCM86_REALBUFSIZE) {
-#if 1
-		g_pcm86.realbuf -= 4;
-		g_pcm86.readpos = (g_pcm86.readpos + 4) & PCM86_BUFMSK;
-#else
 		g_pcm86.realbuf &= 3;				// align4決めウチ
 		g_pcm86.realbuf += PCM86_REALBUFSIZE - 4;
-#endif
 	}
 //	g_pcm86.write = 1;
 	g_pcm86.reqirq = 1;

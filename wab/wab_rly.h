@@ -12,6 +12,7 @@ extern "C" {
 
 void wabrly_initialize(void);
 void wabrly_switch(void);
+void wabrly_callback(UINT nowtime);
 
 
 #if defined(SUPPORT_SWWABRLYSND)

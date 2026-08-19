@@ -108,6 +108,14 @@ static void beep_eventset(void) {
 	int		enable;
 	SINT32	clk;
 
+	if (!g_beep.buz) {
+		g_beep.enable = 0;
+		g_beep.lastenable = 0;
+		g_beep.events = 0;
+		g_beep.clock = soundcfg.lastclock;
+		return;
+	}
+
 	enable = g_beep.low & g_beep.buz;
 	if (g_beep.enable != enable) {
 #if defined(BEEPLOG)
@@ -170,6 +178,13 @@ void beep_oneventset(void) {
 	buz = (sysport.c & 8)?0:1;
 	if (g_beep.buz != buz) {
 		g_beep.buz = buz;
+		if (!buz) {
+			g_beep.enable = 0;
+			g_beep.lastenable = 0;
+			g_beep.events = 0;
+			g_beep.clock = soundcfg.lastclock;
+			return;
+		}
 		beep_eventset();
 	}
 }

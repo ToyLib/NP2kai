@@ -4,6 +4,8 @@
  */
 
 #include <compiler.h>
+#include <cpucore.h>
+#include <stdio.h>
 #include <sound/pcm86.h>
 
 #if 0
@@ -39,6 +41,67 @@ static void trace_fmt_ex(const char* fmt, ...)
 
 #define	BYVOLUME(p, s)	((((s) >> 6) * (p)->volume) >> (PCM86_DIVBIT + 4))
 
+void pcm86_debug_ring_state(const char *where, PCM86 pcm86)
+{
+	UINT64 clk = CPU_CLOCK + CPU_BASECLOCK - CPU_REMCLOCK;
+	fprintf(stderr,
+		"[PCM86] clk=%llu %s read=%u wrt=%u real=%d vir=%d fifo=%d div=%d div2=%d dactrl=%.2x stepbit=%d stepmask=%d vol=%d reqirq=%d irqflag=%d\n",
+		(unsigned long long)clk,
+		where,
+		pcm86->readpos,
+		pcm86->wrtpos,
+		pcm86->realbuf,
+		pcm86->virbuf,
+		pcm86->fifosize,
+		pcm86->div,
+		pcm86->div2,
+		pcm86->dactrl,
+		pcm86->stepbit,
+		pcm86->stepmask,
+		pcm86->volume,
+		pcm86->reqirq,
+		pcm86->irqflag);
+}
+
+BOOL pcm86_is_stale_ring(PCM86 pcm86)
+{
+	/* virbuf reaching 0 while realbuf still has backlog is normal (the wall-clock
+	 * "virtual" watermark just outran actual playback); it is NOT stale on its own.
+	 * A ring is only genuinely desynced when the physical read position has caught
+	 * up to the write position yet the byte counter still claims data remains. */
+	if (pcm86->realbuf <= 0) {
+		return FALSE;
+	}
+	return (pcm86->readpos == pcm86->wrtpos);
+}
+
+void pcm86_kill_stale_state(PCM86 pcm86)
+{
+	pcm86_debug_ring_state("kill-stale", pcm86);
+	pcm86_clear_stale_ring(pcm86);
+	pcm86->reqirq = 0;
+	pcm86->irqflag = 0;
+	nevent_reset(NEVENT_86PCM);
+	pcm86->lastclockforwait = CPU_CLOCK + CPU_BASECLOCK - CPU_REMCLOCK;
+}
+
+void pcm86_clear_stale_ring(PCM86 pcm86)
+{
+	memset(pcm86->buffer, 0, sizeof(pcm86->buffer));
+	pcm86->readpos = 0;
+	pcm86->wrtpos = 0;
+	pcm86->realbuf = 0;
+	pcm86->virbuf = 0;
+	pcm86->divremain = 0;
+	pcm86->smp = 0;
+	pcm86->lastsmp = 0;
+	pcm86->smp_l = 0;
+	pcm86->lastsmp_l = 0;
+	pcm86->smp_r = 0;
+	pcm86->lastsmp_r = 0;
+	pcm86->reqirq = 0;
+	pcm86->irqflag = 0;
+}
 
 static void pcm86mono16(PCM86 pcm86, SINT32 *lpBuffer, UINT nCount)
 {
@@ -103,6 +166,8 @@ static void pcm86mono16(PCM86 pcm86, SINT32 *lpBuffer, UINT nCount)
 	return;
 
 pm16_bufempty:
+	// Ordinary underrun (not corruption): back off the decrement and let the
+	// ring keep its position so pending writes are not discarded.
 	pcm86->realbuf += 2;
 	pcm86->divremain = 0;
 	pcm86->smp = 0;
@@ -153,7 +218,6 @@ static void pcm86stereo16(PCM86 pcm86, SINT32 *lpBuffer, UINT nCount)
 			{
 				SINT32 dat;
 				pcm86->realbuf -= 4;
-				//if (pcm86->realbuf < 4) // ???
 				if (pcm86->realbuf < 0)
 				{
 					goto ps16_bufempty;
@@ -349,46 +413,79 @@ pm8_bufempty:
 
 void SOUNDCALL pcm86gen_getpcm(PCM86 pcm86, SINT32 *lpBuffer, UINT nCount)
 {
-	if ((nCount) && (pcm86->fifo & 0x80) && (pcm86->div))
-	{
-#if defined(SUPPORT_MULTITHREAD)
-		pcm86cs_enter_criticalsection();
-#endif
-		switch (pcm86->dactrl & 0x70)
-		{
-		case 0x00:						/* 16bit-none */
-			break;
-
-		case 0x10:						/* 16bit-right */
-			pcm86mono16(pcm86, lpBuffer + 1, nCount);
-			break;
-
-		case 0x20:						/* 16bit-left */
-			pcm86mono16(pcm86, lpBuffer, nCount);
-			break;
-
-		case 0x30:						/* 16bit-stereo */
-			pcm86stereo16(pcm86, lpBuffer, nCount);
-			break;
-
-		case 0x40:						/* 8bit-none */
-			break;
-
-		case 0x50:						/* 8bit-right */
-			pcm86mono8(pcm86, lpBuffer + 1, nCount);
-			break;
-
-		case 0x60:						/* 8bit-left */
-			pcm86mono8(pcm86, lpBuffer, nCount);
-			break;
-
-		case 0x70:						/* 8bit-stereo */
-			pcm86stereo8(pcm86, lpBuffer, nCount);
-			break;
-		}
-#if defined(SUPPORT_MULTITHREAD)
-		pcm86cs_leave_criticalsection();
-#endif
-		pcm86gen_checkbuf(pcm86, nCount);
+	if (!nCount || lpBuffer == NULL) {
+		return;
 	}
+	if (pcm86_is_stale_ring(pcm86))
+	{
+		pcm86_kill_stale_state(pcm86);
+		while (nCount--) {
+			lpBuffer[0] = 0;
+			lpBuffer[1] = 0;
+			lpBuffer += 2;
+		}
+		return;
+	}
+	if (pcm86->realbuf == 0 && pcm86->virbuf == 0)
+	{
+		pcm86->reqirq = 0;
+		pcm86->irqflag = 0;
+		pcm86->divremain = 0;
+		pcm86->smp = 0;
+		pcm86->lastsmp = 0;
+		pcm86->smp_l = 0;
+		pcm86->lastsmp_l = 0;
+		pcm86->smp_r = 0;
+		pcm86->lastsmp_r = 0;
+	}
+	/* realbuf>0 with virbuf<=0 is normal backlog (the wall-clock watermark just
+	 * depleted first); keep draining realbuf instead of wiping pending audio. */
+	if (!pcm86_should_output_audio(pcm86->fifo, pcm86->div, pcm86->realbuf, pcm86->virbuf)) {
+		while (nCount--) {
+			lpBuffer[0] = 0;
+			lpBuffer[1] = 0;
+			lpBuffer += 2;
+		}
+		return;
+	}
+
+#if defined(SUPPORT_MULTITHREAD)
+	pcm86cs_enter_criticalsection();
+#endif
+	switch (pcm86->dactrl & 0x70)
+	{
+	case 0x00:						/* 16bit-none */
+		break;
+
+	case 0x10:						/* 16bit-right */
+		pcm86mono16(pcm86, lpBuffer + 1, nCount);
+		break;
+
+	case 0x20:						/* 16bit-left */
+		pcm86mono16(pcm86, lpBuffer, nCount);
+		break;
+
+	case 0x30:						/* 16bit-stereo */
+		pcm86stereo16(pcm86, lpBuffer, nCount);
+		break;
+
+	case 0x40:						/* 8bit-none */
+		break;
+
+	case 0x50:						/* 8bit-right */
+		pcm86mono8(pcm86, lpBuffer + 1, nCount);
+		break;
+
+	case 0x60:						/* 8bit-left */
+		pcm86mono8(pcm86, lpBuffer, nCount);
+		break;
+
+	case 0x70:						/* 8bit-stereo */
+		pcm86stereo8(pcm86, lpBuffer, nCount);
+		break;
+	}
+#if defined(SUPPORT_MULTITHREAD)
+	pcm86cs_leave_criticalsection();
+#endif
+	pcm86gen_checkbuf(pcm86, nCount);
 }

@@ -246,11 +246,12 @@ void np2wab_setScreenSize(int width, int height)
 		// 統合モードならエミュレーション領域サイズを更新する
 		np2wab.wndWidth = ga_lastwabwidth = width;
 		np2wab.wndHeight = ga_lastwabheight = height;
+		ga_lastrealwidth = width;
+		ga_lastrealheight = height;
 		if(np2wab.relay & 0x3){
-#if defined(NP2_WIN)
-			scrnmng_setsize(0, 0, width, height);
-#endif
-
+			if(scrnmng.width != width || scrnmng.height != height) {
+				scrnmng_setsize(0, 0, width, height);
+			}
 			scrnmng_updatefsres(); // フルスクリーン解像度更新
 #if defined(NP2_WIN)
 			mousemng_updateclip(); // マウスキャプチャのクリップ範囲を修正
@@ -476,11 +477,17 @@ void np2wab_drawWABWindow(void)
 	int scalemode = 0;
 	int srcwidth = np2wab.realWidth;
 	int srcheight = np2wab.realHeight;
-	if(ga_lastrealwidth != srcwidth || ga_lastrealheight != srcheight){
-		// 解像度が変わっていたらウィンドウサイズも変える
+	if((ga_lastrealwidth != srcwidth || ga_lastrealheight != srcheight) ||
+	   (((np2wab.relay & 0x3) != 0) && (scrnmng.width != srcwidth || scrnmng.height != srcheight))) {
+		// 要求された WAB 解像度と現在の SDL 表示サイズが合っていないなら
+		// ここで直接反映して、サイズが止まらないようにする
 		if(!ga_reqChangeWindowSize){
 			np2wab.paletteChanged = 1;
-			np2wab_setScreenSizeMT(srcwidth, srcheight);
+			if(np2wabwnd.ready || !ga_threadmode){
+				np2wab_setScreenSize(srcwidth, srcheight);
+			}else{
+				np2wab_setScreenSizeMT(srcwidth, srcheight);
+			}
 		}
 		if(!np2wabwnd.ready) return;
 	}
